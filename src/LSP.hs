@@ -2,12 +2,15 @@
 
 module LSP (diagnosticsLoop, initRepsonseFromRequest, definitionResponse, referencesResponse) where
 
+import           Lens.Micro
 import           Language.Haskell.LSP.Types.Capabilities hiding(_experimental, _colorProvider, _workspace)
 import           Language.Haskell.LSP.Types as L
+import           Language.Haskell.LSP.Types.Lens (range, params, diagnostics, uri)
+import           Data.List  (groupBy, last)
 
 diagnosticsLoop :: [Uri] -> [PublishDiagnosticsNotification] -> ([PublishDiagnosticsNotification], [Uri])
 diagnosticsLoop store diagnostics = do
-    let diagWithError = filter diagnosticErrorExist diagnostics
+    let diagWithError = filterSameRangeDiagnostics <$> filter diagnosticErrorExist diagnostics
     let diagWithErrorUri = map uriFromPublishDiagnosticsNotification diagWithError
     let cleanedDiagnostic = filter (\e -> elem (uriFromPublishDiagnosticsNotification e) store && notElem (uriFromPublishDiagnosticsNotification e) diagWithErrorUri) diagnostics
     let notCleanedYet = filter (\e -> e `notElem` map uriFromPublishDiagnosticsNotification cleanedDiagnostic) store
@@ -15,14 +18,23 @@ diagnosticsLoop store diagnostics = do
     let newStore =notCleanedYet ++ diagWithErrorUri
     (toSend, newStore)
 
+
 diagnosticErrorExist :: PublishDiagnosticsNotification -> Bool
-diagnosticErrorExist d = case d of NotificationMessage _ _ params -> case params of PublishDiagnosticsParams _ diagnostics -> not (null diagnostics)
+diagnosticErrorExist publishDiagnosticsNotification = not $ null (publishDiagnosticsNotification ^. params . diagnostics)
+
 
 uriFromPublishDiagnosticsNotification :: PublishDiagnosticsNotification -> Uri
-uriFromPublishDiagnosticsNotification notification = case notification of NotificationMessage _ _ param -> uriFromPublishDiagnosticsParams param
+uriFromPublishDiagnosticsNotification notification = notification ^. params . uri
 
-uriFromPublishDiagnosticsParams :: PublishDiagnosticsParams -> Uri
-uriFromPublishDiagnosticsParams param = case param of PublishDiagnosticsParams uri _ -> uri
+
+filterSameRangeDiagnostics :: PublishDiagnosticsNotification -> PublishDiagnosticsNotification
+filterSameRangeDiagnostics publishDiagnosticsNotification =
+  publishDiagnosticsNotification & params . diagnostics  %~ uniqueDiagnositcsPosition
+  where
+    uniqueDiagnositcsPosition diagnostics =
+      case diagnostics of
+        List diags -> List $ last <$> groupBy (\d1 d2-> (d1 ^.range) == (d2 ^.range)) diags
+
 
 initRepsonseFromRequest :: InitializeRequest -> InitializeResponse
 initRepsonseFromRequest request = case request of
