@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 module Main (main) where
 
+import qualified Data.ByteString.Lazy                  as BSL
 import           Control.Concurrent                    (forkIO, threadDelay)
 import qualified Control.Exception                     as E
 import           Control.Monad (forever)
@@ -63,7 +64,11 @@ main = withSocketsDo $ do
       else do
         let (contents, rest) = consumeData $ BS.append prevData newData
         let publishDiagnostics = fromContents contents :: [PublishDiagnosticsNotification]
+        logFile ">>>>>>>>>>>>>>>>>>>>>"
+        logFile $ show publishDiagnostics
         let (toSend, nextDiags) =  diagnosticsLoop diags publishDiagnostics
+        logFile "<<<<<<<<<<<<<<<<<<<<<<"
+        logFile $ show toSend
         mapM_ sendToClient toSend
         loop nextDiags sock rest
     listenClient :: IO ()
@@ -104,3 +109,7 @@ getContentLength = do
               rest <- BS.hGet stdin 3
               return acc
          else loop $ BS.append acc char
+
+logFile :: String -> IO ()
+logFile str = BSL.appendFile "/tmp/woods.log" $ BSL.fromStrict (BS.pack $ (str ++ "\n"))
+
